@@ -31,3 +31,21 @@ jobs:
 
       - name: Workspace check
         run: cargo check -p control-plane -p host-runtime -p viewer-runtime
+
+  host-runtime-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check host-runtime (macOS)
+        run: cargo check -p host-runtime
+
+      - name: Test host-runtime (macOS)
+        run: cargo test -p host-runtime
