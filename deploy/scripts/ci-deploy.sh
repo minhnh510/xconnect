@@ -73,8 +73,25 @@ ensure_packages() {
   run_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
+ensure_docker_daemon_config() {
+  run_root install -m 0755 -d /etc/docker
+
+  if [[ ! -f /etc/docker/daemon.json ]]; then
+    run_root sh -c "printf '%s\n' '{\"userland-proxy-path\": \"/usr/bin/docker-proxy\"}' > /etc/docker/daemon.json"
+    return
+  fi
+
+  if ! run_root grep -q '"userland-proxy-path"' /etc/docker/daemon.json; then
+    echo "Warning: /etc/docker/daemon.json exists without userland-proxy-path; update it manually if Docker fails to start." >&2
+  fi
+}
+
 ensure_docker() {
   if command -v systemctl >/dev/null 2>&1; then
+    run_root systemctl reset-failed docker docker.socket || true
+    run_root systemctl stop docker docker.socket || true
+    run_root systemctl daemon-reload
+    run_root systemctl start docker.socket
     run_root systemctl enable --now docker
   fi
 }
@@ -138,6 +155,7 @@ run_root mkdir -p "$DEPLOY_DIR/acme"
 run_root chmod +x "$DEPLOY_DIR/scripts/renew-hook.sh"
 
 ensure_packages
+ensure_docker_daemon_config
 ensure_docker
 ensure_certificates
 

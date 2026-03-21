@@ -36,6 +36,19 @@ install_docker_stack() {
   sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
+ensure_docker_daemon_config() {
+  sudo install -m 0755 -d /etc/docker
+
+  if [[ ! -f /etc/docker/daemon.json ]]; then
+    sudo sh -c "printf '%s\n' '{\"userland-proxy-path\": \"/usr/bin/docker-proxy\"}' > /etc/docker/daemon.json"
+    return
+  fi
+
+  if ! sudo grep -q '"userland-proxy-path"' /etc/docker/daemon.json; then
+    echo "Warning: /etc/docker/daemon.json exists without userland-proxy-path; update it manually if Docker fails to start." >&2
+  fi
+}
+
 ensure_certificate_lineage() {
   local domain="$1"
   local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
@@ -64,6 +77,11 @@ done
 
 echo "[1/4] Installing dependencies (docker, certbot)"
 install_docker_stack
+ensure_docker_daemon_config
+sudo systemctl reset-failed docker docker.socket || true
+sudo systemctl stop docker docker.socket || true
+sudo systemctl daemon-reload
+sudo systemctl start docker.socket
 sudo systemctl enable --now docker
 
 echo "[2/4] Requesting Let's Encrypt certificates"
