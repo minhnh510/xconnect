@@ -29,19 +29,44 @@ require_env() {
   fi
 }
 
+has_compose() {
+  docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1
+}
+
+compose() {
+  if docker compose version >/dev/null 2>&1; then
+    run_root docker compose "$@"
+    return
+  fi
+
+  if command -v docker-compose >/dev/null 2>&1; then
+    run_root docker-compose "$@"
+    return
+  fi
+
+  echo "Docker Compose is not installed." >&2
+  exit 1
+}
+
 ensure_packages() {
   local missing=0
+  local compose_package="docker-compose-plugin"
 
   command -v docker >/dev/null 2>&1 || missing=1
   command -v certbot >/dev/null 2>&1 || missing=1
   command -v crontab >/dev/null 2>&1 || missing=1
+  has_compose || missing=1
 
   if [[ "$missing" -eq 0 ]]; then
     return
   fi
 
+  if ! apt-cache show "$compose_package" >/dev/null 2>&1; then
+    compose_package="docker-compose"
+  fi
+
   run_root apt-get update
-  run_root apt-get install -y docker.io docker-compose-plugin certbot cron
+  run_root apt-get install -y docker.io "$compose_package" certbot cron
 }
 
 ensure_docker() {
@@ -70,8 +95,8 @@ ensure_certificates() {
     return
   fi
 
-  if command -v docker >/dev/null 2>&1; then
-    run_root docker compose "${COMPOSE_ARGS[@]}" down || true
+  if command -v docker >/dev/null 2>&1 && has_compose; then
+    compose "${COMPOSE_ARGS[@]}" down || true
   fi
 
   run_root certbot certonly \
@@ -108,5 +133,5 @@ ensure_packages
 ensure_docker
 ensure_certificates
 
-run_root docker compose "${COMPOSE_ARGS[@]}" up -d --build --remove-orphans
-run_root docker compose "${COMPOSE_ARGS[@]}" ps
+compose "${COMPOSE_ARGS[@]}" up -d --build --remove-orphans
+compose "${COMPOSE_ARGS[@]}" ps
