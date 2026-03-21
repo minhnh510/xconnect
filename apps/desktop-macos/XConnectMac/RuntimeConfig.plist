@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>API_BASE_URL</key>
+	<string>https://api.example.com</string>
+	<key>TLS_PIN_MODE</key>
+	<string>disabled</string>
+	<key>TURN_SECRET</key>
+	<string>replace_with_very_long_random_secret</string>
+	<key>TURN_URIS</key>
+	<array>
+		<string>turn:turn.example.com:3478?transport=udp</string>
+		<string>turn:turn.example.com:3478?transport=tcp</string>
+		<string>turns:turn.example.com:5349?transport=tcp</string>
+	</array>
+	<key>TURN_USERNAME_MODE</key>
+	<string>shared_secret</string>
+</dict>
+</plist>
