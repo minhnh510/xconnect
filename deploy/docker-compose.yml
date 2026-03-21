@@ -1,0 +1,92 @@
+﻿services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-xconnect}
+      POSTGRES_USER: ${POSTGRES_USER:-xconnect}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-xconnect_dev_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-xconnect}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+
+  control-plane:
+    build:
+      context: ..
+      dockerfile: services/control-plane/Dockerfile
+    restart: unless-stopped
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      JWT_SECRET: ${JWT_SECRET}
+      ACCESS_TOKEN_TTL_SECONDS: ${ACCESS_TOKEN_TTL_SECONDS:-900}
+      REFRESH_TOKEN_TTL_SECONDS: ${REFRESH_TOKEN_TTL_SECONDS:-1209600}
+      TURN_SECRET: ${TURN_SECRET}
+      TURN_URIS: turn:${TURN_DOMAIN}:3478?transport=udp,turn:${TURN_DOMAIN}:3478?transport=tcp,turns:${TURN_DOMAIN}:5349?transport=tcp
+      TLS_PIN_MODE: disabled
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  nginx:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      API_DOMAIN: ${API_DOMAIN}
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./acme:/var/www/certbot
+    depends_on:
+      - control-plane
+
+  coturn:
+    image: coturn/coturn:4.6.3
+    restart: unless-stopped
+    environment:
+      TURN_DOMAIN: ${TURN_DOMAIN}
+      TURN_SECRET: ${TURN_SECRET}
+    command: >
+      sh -c "turnserver
+      --no-cli
+      --fingerprint
+      --realm=${TURN_DOMAIN}
+      --listening-ip=0.0.0.0
+      --external-ip=${TURN_EXTERNAL_IP}
+      --listening-port=3478
+      --tls-listening-port=5349
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET}
+      --cert=/etc/letsencrypt/live/${TURN_DOMAIN}/fullchain.pem
+      --pkey=/etc/letsencrypt/live/${TURN_DOMAIN}/privkey.pem
+      --min-port=49152
+      --max-port=65535
+      --log-file=stdout"
+    ports:
+      - "3478:3478/tcp"
+      - "3478:3478/udp"
+      - "5349:5349/tcp"
+      - "49152-65535:49152-65535/udp"
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -1,0 +1,25 @@
+﻿[package]
+name = "host-runtime"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+arboard.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+enigo.workspace = true
+futures-util.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+uuid.workspace = true
+webrtc.workspace = true
+xcap.workspace = true
+xconnect-protocol = { path = "../protocol" }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_System_Com", "Win32_Media_MediaFoundation"] }

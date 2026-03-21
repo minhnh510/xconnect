@@ -1,0 +1,9 @@
+﻿/target
+**/target
+.env
+.env.*
+!.env.example
+*.log
+*.sqlite
+.DS_Store
+Thumbs.db
