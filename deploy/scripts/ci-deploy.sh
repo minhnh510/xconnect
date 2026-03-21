@@ -87,16 +87,12 @@ register_renew_hook() {
   rm -f "$tmp_file"
 }
 
-ensure_certificates() {
-  local api_cert="/etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem"
-  local turn_cert="/etc/letsencrypt/live/${TURN_DOMAIN}/fullchain.pem"
+ensure_certificate_lineage() {
+  local domain="$1"
+  local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
 
-  if [[ -f "$api_cert" && -f "$turn_cert" ]]; then
+  if [[ -f "$cert_path" ]]; then
     return
-  fi
-
-  if command -v docker >/dev/null 2>&1 && has_compose; then
-    compose "${COMPOSE_ARGS[@]}" down || true
   fi
 
   run_root certbot certonly \
@@ -104,9 +100,17 @@ ensure_certificates() {
     --non-interactive \
     --agree-tos \
     --email "$LETSENCRYPT_EMAIL" \
-    -d "$API_DOMAIN" \
-    -d "$TURN_DOMAIN"
+    --cert-name "$domain" \
+    -d "$domain"
+}
 
+ensure_certificates() {
+  if command -v docker >/dev/null 2>&1 && has_compose; then
+    compose "${COMPOSE_ARGS[@]}" down || true
+  fi
+
+  ensure_certificate_lineage "$API_DOMAIN"
+  ensure_certificate_lineage "$TURN_DOMAIN"
   register_renew_hook
 }
 

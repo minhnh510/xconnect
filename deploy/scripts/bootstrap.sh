@@ -21,6 +21,23 @@ compose() {
   exit 1
 }
 
+ensure_certificate_lineage() {
+  local domain="$1"
+  local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
+
+  if [[ -f "$cert_path" ]]; then
+    return
+  fi
+
+  sudo certbot certonly \
+    --standalone \
+    --non-interactive \
+    --agree-tos \
+    --email "$LETSENCRYPT_EMAIL" \
+    --cert-name "$domain" \
+    -d "$domain"
+}
+
 source deploy/.env
 
 for var in API_DOMAIN TURN_DOMAIN LETSENCRYPT_EMAIL JWT_SECRET TURN_SECRET TURN_EXTERNAL_IP; do
@@ -39,13 +56,9 @@ else
 fi
 sudo systemctl enable --now docker
 
-echo "[2/4] Requesting Let's Encrypt certificate for $API_DOMAIN and $TURN_DOMAIN"
-sudo certbot certonly --standalone \
-  --non-interactive \
-  --agree-tos \
-  --email "$LETSENCRYPT_EMAIL" \
-  -d "$API_DOMAIN" \
-  -d "$TURN_DOMAIN"
+echo "[2/4] Requesting Let's Encrypt certificates"
+ensure_certificate_lineage "$API_DOMAIN"
+ensure_certificate_lineage "$TURN_DOMAIN"
 
 echo "[3/4] Starting stack"
 (cd deploy && compose --env-file .env up -d --build)
