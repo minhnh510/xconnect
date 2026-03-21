@@ -50,23 +50,27 @@ compose() {
 
 ensure_packages() {
   local missing=0
-  local compose_package="docker-compose-plugin"
 
-  command -v docker >/dev/null 2>&1 || missing=1
   command -v certbot >/dev/null 2>&1 || missing=1
   command -v crontab >/dev/null 2>&1 || missing=1
-  has_compose || missing=1
+  docker compose version >/dev/null 2>&1 || missing=1
 
   if [[ "$missing" -eq 0 ]]; then
     return
   fi
 
-  if ! apt-cache show "$compose_package" >/dev/null 2>&1; then
-    compose_package="docker-compose"
+  run_root apt-get update
+  run_root apt-get install -y ca-certificates certbot cron curl
+  run_root install -m 0755 -d /etc/apt/keyrings
+
+  if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+    run_root curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    run_root chmod a+r /etc/apt/keyrings/docker.asc
   fi
 
+  run_root sh -c '. /etc/os-release && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list'
   run_root apt-get update
-  run_root apt-get install -y docker.io "$compose_package" certbot cron
+  run_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 }
 
 ensure_docker() {

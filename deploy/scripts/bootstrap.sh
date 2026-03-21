@@ -21,6 +21,21 @@ compose() {
   exit 1
 }
 
+install_docker_stack() {
+  sudo apt-get update
+  sudo apt-get install -y ca-certificates certbot cron curl
+  sudo install -m 0755 -d /etc/apt/keyrings
+
+  if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+    sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+    sudo chmod a+r /etc/apt/keyrings/docker.asc
+  fi
+
+  sudo sh -c '. /etc/os-release && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list'
+  sudo apt-get update
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
 ensure_certificate_lineage() {
   local domain="$1"
   local cert_path="/etc/letsencrypt/live/${domain}/fullchain.pem"
@@ -48,12 +63,7 @@ for var in API_DOMAIN TURN_DOMAIN LETSENCRYPT_EMAIL JWT_SECRET TURN_SECRET TURN_
 done
 
 echo "[1/4] Installing dependencies (docker, certbot)"
-sudo apt-get update
-if apt-cache show docker-compose-plugin >/dev/null 2>&1; then
-  sudo apt-get install -y docker.io docker-compose-plugin certbot
-else
-  sudo apt-get install -y docker.io docker-compose certbot
-fi
+install_docker_stack
 sudo systemctl enable --now docker
 
 echo "[2/4] Requesting Let's Encrypt certificates"
