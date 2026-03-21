@@ -78,11 +78,44 @@ jobs:
           : "${SSHPASS:?Missing VPS_PASSWORD secret}"
           VPS_PORT="${VPS_PORT:-22}"
           VPS_USER="${VPS_USER:-root}"
+          SSH_OPTIONS=(
+            -o PreferredAuthentications=password
+            -o PubkeyAuthentication=no
+            -o StrictHostKeyChecking=no
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=4
+            -o TCPKeepAlive=yes
+            -p "$VPS_PORT"
+          )
 
-          sshpass -e ssh -o StrictHostKeyChecking=no -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$DEPLOY_PATH'"
+          retry() {
+            local max_attempts="$1"
+            shift
+            local attempt=1
+            local exit_code=0
 
-          sshpass -e rsync -az --delete --relative \
-            -e "ssh -o StrictHostKeyChecking=no -p $VPS_PORT" \
+            while true; do
+              if "$@"; then
+                return 0
+              fi
+
+              exit_code=$?
+
+              if [[ "$attempt" -ge "$max_attempts" ]]; then
+                return "$exit_code"
+              fi
+
+              echo "Attempt $attempt/$max_attempts failed with exit code $exit_code. Retrying in 10s..."
+              attempt=$((attempt + 1))
+              sleep 10
+            done
+          }
+
+          retry 5 sshpass -e ssh "${SSH_OPTIONS[@]}" "$VPS_USER@$VPS_HOST" "mkdir -p '$DEPLOY_PATH'"
+
+          retry 5 sshpass -e rsync -az --delete --relative \
+            -e "ssh -o PreferredAuthentications=password -o PubkeyAuthentication=no -o StrictHostKeyChecking=no -o ConnectTimeout=20 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 -o TCPKeepAlive=yes -p $VPS_PORT" \
             ./Cargo.toml \
             ./Cargo.lock \
             ./rust-toolchain.toml \
@@ -104,6 +137,40 @@ jobs:
           : "${SSHPASS:?Missing VPS_PASSWORD secret}"
           VPS_PORT="${VPS_PORT:-22}"
           VPS_USER="${VPS_USER:-root}"
+          SSH_OPTIONS=(
+            -o PreferredAuthentications=password
+            -o PubkeyAuthentication=no
+            -o StrictHostKeyChecking=no
+            -o ConnectTimeout=20
+            -o ServerAliveInterval=15
+            -o ServerAliveCountMax=4
+            -o TCPKeepAlive=yes
+            -p "$VPS_PORT"
+          )
 
-          sshpass -e ssh -o StrictHostKeyChecking=no -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
-            "cd '$DEPLOY_PATH' && chmod +x deploy/scripts/ci-deploy.sh deploy/scripts/renew-hook.sh && bash deploy/scripts/ci-deploy.sh"
+          retry() {
+            local max_attempts="$1"
+            shift
+            local attempt=1
+            local exit_code=0
+
+            while true; do
+              if "$@"; then
+                return 0
+              fi
+
+              exit_code=$?
+
+              if [[ "$attempt" -ge "$max_attempts" ]]; then
+                return "$exit_code"
+              fi
+
+              echo "Attempt $attempt/$max_attempts failed with exit code $exit_code. Retrying in 15s..."
+              attempt=$((attempt + 1))
+              sleep 15
+            done
+          }
+
+          REMOTE_COMMAND="cd '$DEPLOY_PATH' && chmod +x deploy/scripts/ci-deploy.sh deploy/scripts/renew-hook.sh && bash -lc 'set -euo pipefail; bash deploy/scripts/ci-deploy.sh 2>&1 | tee -a /var/log/xconnect-deploy.log'"
+
+          retry 5 sshpass -e ssh "${SSH_OPTIONS[@]}" "$VPS_USER@$VPS_HOST" "$REMOTE_COMMAND"

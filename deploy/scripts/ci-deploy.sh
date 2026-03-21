@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEPLOY_DIR="$ROOT_DIR/deploy"
 ENV_FILE="$DEPLOY_DIR/.env"
 COMPOSE_ARGS=(-f "$DEPLOY_DIR/docker-compose.yml" --env-file "$ENV_FILE")
+DOCKER_NEEDS_RESTART=0
 
 run_root() {
   if [[ "$(id -u)" -eq 0 ]]; then
@@ -31,6 +32,10 @@ require_env() {
 
 has_compose() {
   docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1
+}
+
+docker_is_ready() {
+  command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 }
 
 compose() {
@@ -78,6 +83,7 @@ ensure_docker_daemon_config() {
 
   if [[ ! -f /etc/docker/daemon.json ]]; then
     run_root sh -c "printf '%s\n' '{\"userland-proxy-path\": \"/usr/bin/docker-proxy\"}' > /etc/docker/daemon.json"
+    DOCKER_NEEDS_RESTART=1
     return
   fi
 
@@ -87,13 +93,42 @@ ensure_docker_daemon_config() {
 }
 
 ensure_docker() {
-  if command -v systemctl >/dev/null 2>&1; then
-    run_root systemctl reset-failed docker docker.socket || true
-    run_root systemctl stop docker docker.socket || true
-    run_root systemctl daemon-reload
-    run_root systemctl start docker.socket
-    run_root systemctl enable --now docker
+  if docker_is_ready && [[ "$DOCKER_NEEDS_RESTART" -eq 0 ]]; then
+    return
   fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_root systemctl daemon-reload
+    run_root systemctl enable docker.socket || true
+    run_root systemctl enable docker || true
+
+    if [[ "$DOCKER_NEEDS_RESTART" -eq 1 ]]; then
+      run_root systemctl reset-failed docker docker.socket || true
+      run_root systemctl stop docker docker.socket || true
+      run_root systemctl start docker.socket
+      run_root systemctl start docker
+    else
+      run_root systemctl start docker.socket || true
+      run_root systemctl start docker || true
+    fi
+  fi
+
+  local attempt
+  for attempt in {1..10}; do
+    if docker_is_ready; then
+      return
+    fi
+
+    sleep 2
+  done
+
+  echo "Docker daemon is not ready." >&2
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_root systemctl status docker --no-pager || true
+  fi
+
+  exit 1
 }
 
 register_renew_hook() {

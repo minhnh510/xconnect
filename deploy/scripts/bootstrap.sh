@@ -6,6 +6,8 @@ if [[ ! -f "deploy/.env" ]]; then
   exit 1
 fi
 
+DOCKER_NEEDS_RESTART=0
+
 compose() {
   if sudo docker compose version >/dev/null 2>&1; then
     sudo docker compose "$@"
@@ -19,6 +21,10 @@ compose() {
 
   echo "Docker Compose is not installed." >&2
   exit 1
+}
+
+docker_is_ready() {
+  command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1
 }
 
 install_docker_stack() {
@@ -41,12 +47,46 @@ ensure_docker_daemon_config() {
 
   if [[ ! -f /etc/docker/daemon.json ]]; then
     sudo sh -c "printf '%s\n' '{\"userland-proxy-path\": \"/usr/bin/docker-proxy\"}' > /etc/docker/daemon.json"
+    DOCKER_NEEDS_RESTART=1
     return
   fi
 
   if ! sudo grep -q '"userland-proxy-path"' /etc/docker/daemon.json; then
     echo "Warning: /etc/docker/daemon.json exists without userland-proxy-path; update it manually if Docker fails to start." >&2
   fi
+}
+
+ensure_docker_service() {
+  if docker_is_ready && [[ "$DOCKER_NEEDS_RESTART" -eq 0 ]]; then
+    return
+  fi
+
+  sudo systemctl daemon-reload
+  sudo systemctl enable docker.socket || true
+  sudo systemctl enable docker || true
+
+  if [[ "$DOCKER_NEEDS_RESTART" -eq 1 ]]; then
+    sudo systemctl reset-failed docker docker.socket || true
+    sudo systemctl stop docker docker.socket || true
+    sudo systemctl start docker.socket
+    sudo systemctl start docker
+  else
+    sudo systemctl start docker.socket || true
+    sudo systemctl start docker || true
+  fi
+
+  local attempt
+  for attempt in {1..10}; do
+    if docker_is_ready; then
+      return
+    fi
+
+    sleep 2
+  done
+
+  echo "Docker daemon is not ready." >&2
+  sudo systemctl status docker --no-pager || true
+  exit 1
 }
 
 ensure_certificate_lineage() {
@@ -78,11 +118,7 @@ done
 echo "[1/4] Installing dependencies (docker, certbot)"
 install_docker_stack
 ensure_docker_daemon_config
-sudo systemctl reset-failed docker docker.socket || true
-sudo systemctl stop docker docker.socket || true
-sudo systemctl daemon-reload
-sudo systemctl start docker.socket
-sudo systemctl enable --now docker
+ensure_docker_service
 
 echo "[2/4] Requesting Let's Encrypt certificates"
 ensure_certificate_lineage "$API_DOMAIN"
