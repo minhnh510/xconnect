@@ -3,7 +3,7 @@
 FROM rust:1.76-bookworm AS builder
 WORKDIR /workspace
 
-COPY Cargo.toml rust-toolchain.toml ./
+COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
 COPY crates ./crates
 COPY services/control-plane ./services/control-plane
 

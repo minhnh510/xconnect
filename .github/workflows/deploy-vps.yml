@@ -1,0 +1,109 @@
+name: deploy-vps
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "rust-toolchain.toml"
+      - "crates/**"
+      - "services/control-plane/**"
+      - "deploy/**"
+      - ".github/workflows/deploy-vps.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-vps-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      DEPLOY_PATH: /opt/xconnect
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create deploy env file
+        env:
+          API_DOMAIN: ${{ secrets.API_DOMAIN }}
+          TURN_DOMAIN: ${{ secrets.TURN_DOMAIN }}
+          TURN_EXTERNAL_IP: ${{ secrets.TURN_EXTERNAL_IP }}
+          LETSENCRYPT_EMAIL: ${{ secrets.LETSENCRYPT_EMAIL }}
+          JWT_SECRET: ${{ secrets.JWT_SECRET }}
+          TURN_SECRET: ${{ secrets.TURN_SECRET }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          ACCESS_TOKEN_TTL_SECONDS: ${{ secrets.ACCESS_TOKEN_TTL_SECONDS }}
+          REFRESH_TOKEN_TTL_SECONDS: ${{ secrets.REFRESH_TOKEN_TTL_SECONDS }}
+        run: |
+          set -euo pipefail
+
+          cat > deploy/.env <<EOF
+          API_DOMAIN=${API_DOMAIN:?Missing API_DOMAIN secret}
+          TURN_DOMAIN=${TURN_DOMAIN:?Missing TURN_DOMAIN secret}
+          TURN_EXTERNAL_IP=${TURN_EXTERNAL_IP:?Missing TURN_EXTERNAL_IP secret}
+          LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL:?Missing LETSENCRYPT_EMAIL secret}
+          JWT_SECRET=${JWT_SECRET:?Missing JWT_SECRET secret}
+          TURN_SECRET=${TURN_SECRET:?Missing TURN_SECRET secret}
+          POSTGRES_DB=${POSTGRES_DB:-xconnect}
+          POSTGRES_USER=${POSTGRES_USER:-xconnect}
+          POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?Missing POSTGRES_PASSWORD secret}
+          ACCESS_TOKEN_TTL_SECONDS=${ACCESS_TOKEN_TTL_SECONDS:-900}
+          REFRESH_TOKEN_TTL_SECONDS=${REFRESH_TOKEN_TTL_SECONDS:-1209600}
+          EOF
+
+          chmod 600 deploy/.env
+
+      - name: Install SSH tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y sshpass rsync
+
+      - name: Sync release to VPS
+        env:
+          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+
+          : "${VPS_HOST:?Missing VPS_HOST secret}"
+          : "${SSHPASS:?Missing VPS_PASSWORD secret}"
+          VPS_PORT="${VPS_PORT:-22}"
+          VPS_USER="${VPS_USER:-root}"
+
+          sshpass -e ssh -o StrictHostKeyChecking=no -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" "mkdir -p '$DEPLOY_PATH'"
+
+          sshpass -e rsync -az --delete --relative \
+            -e "ssh -o StrictHostKeyChecking=no -p $VPS_PORT" \
+            ./Cargo.toml \
+            ./Cargo.lock \
+            ./rust-toolchain.toml \
+            ./crates \
+            ./services/control-plane \
+            ./deploy \
+            "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
+
+      - name: Run remote deploy
+        env:
+          SSHPASS: ${{ secrets.VPS_PASSWORD }}
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+        run: |
+          set -euo pipefail
+
+          : "${VPS_HOST:?Missing VPS_HOST secret}"
+          : "${SSHPASS:?Missing VPS_PASSWORD secret}"
+          VPS_PORT="${VPS_PORT:-22}"
+          VPS_USER="${VPS_USER:-root}"
+
+          sshpass -e ssh -o StrictHostKeyChecking=no -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "cd '$DEPLOY_PATH' && chmod +x deploy/scripts/ci-deploy.sh deploy/scripts/renew-hook.sh && bash deploy/scripts/ci-deploy.sh"

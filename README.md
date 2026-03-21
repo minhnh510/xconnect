@@ -32,6 +32,24 @@ CI coverage in `.github/workflows/ci.yml` currently includes:
 - Linux: format check, workspace clippy, protocol tests, and workspace cargo check.
 - macOS: `cargo check -p host-runtime` and `cargo test -p host-runtime`.
 
+## GitHub Actions deploy
+
+Repository includes `.github/workflows/deploy-vps.yml` for VPS deploy of the control-plane stack.
+
+Required GitHub repository secrets:
+- `VPS_HOST`, `VPS_PORT`, `VPS_USER`, `VPS_PASSWORD`
+- `API_DOMAIN`, `TURN_DOMAIN`, `TURN_EXTERNAL_IP`, `LETSENCRYPT_EMAIL`
+- `JWT_SECRET`, `TURN_SECRET`, `POSTGRES_PASSWORD`
+
+Optional secrets:
+- `POSTGRES_DB`, `POSTGRES_USER`
+- `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_SECONDS`
+
+Notes:
+- Workflow runs on push to `main` and supports manual `workflow_dispatch`.
+- Source is synced to `/opt/xconnect` on the VPS, then `deploy/scripts/ci-deploy.sh` runs `docker compose up -d --build`.
+- First deploy also bootstraps Docker/Certbot if missing and requests Let's Encrypt certificates, so DNS for `API_DOMAIN` and `TURN_DOMAIN` must already point to the VPS.
+
 ### Windows note
 If `cargo` is not already in `PATH` for PowerShell, prepend it with
 `$env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"`.
