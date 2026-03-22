@@ -34,6 +34,18 @@ has_compose() {
   docker compose version >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1
 }
 
+dns_is_working() {
+  getent hosts registry-1.docker.io >/dev/null 2>&1
+}
+
+write_static_resolv_conf() {
+  run_root sh -c "cat > /etc/resolv.conf <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+options edns0
+EOF"
+}
+
 docker_is_ready() {
   command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1
 }
@@ -76,6 +88,36 @@ ensure_packages() {
   run_root sh -c '. /etc/os-release && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu ${UBUNTU_CODENAME:-$VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list'
   run_root apt-get update
   run_root apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+}
+
+ensure_dns() {
+  if dns_is_working; then
+    return
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    run_root systemctl reset-failed systemd-resolved || true
+    run_root systemctl restart systemd-resolved || true
+    sleep 2
+  fi
+
+  if dns_is_working; then
+    return
+  fi
+
+  if [[ -e /etc/resolv.conf && ! -e /etc/resolv.conf.xconnect-backup ]]; then
+    run_root cp -a /etc/resolv.conf /etc/resolv.conf.xconnect-backup || true
+  fi
+
+  # Fall back to static public resolvers when the local systemd stub is broken.
+  write_static_resolv_conf
+
+  if dns_is_working; then
+    return
+  fi
+
+  echo "DNS resolution is not working." >&2
+  exit 1
 }
 
 ensure_docker_daemon_config() {
@@ -189,6 +231,7 @@ require_env POSTGRES_PASSWORD
 run_root mkdir -p "$DEPLOY_DIR/acme"
 run_root chmod +x "$DEPLOY_DIR/scripts/renew-hook.sh"
 
+ensure_dns
 ensure_packages
 ensure_docker_daemon_config
 ensure_docker
