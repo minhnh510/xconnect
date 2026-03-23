@@ -59,6 +59,9 @@
   coturn:
     image: coturn/coturn:4.6.3
     restart: unless-stopped
+    # Host networking avoids Docker publishing thousands of UDP relay ports.
+    network_mode: host
+    user: "0:0"
     environment:
       TURN_DOMAIN: ${TURN_DOMAIN}
       TURN_SECRET: ${TURN_SECRET}
@@ -78,11 +81,6 @@
       --min-port=49152
       --max-port=65535
       --log-file=stdout"
-    ports:
-      - "3478:3478/tcp"
-      - "3478:3478/udp"
-      - "5349:5349/tcp"
-      - "49152-65535:49152-65535/udp"
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
